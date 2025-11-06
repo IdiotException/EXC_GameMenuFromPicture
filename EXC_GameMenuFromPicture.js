@@ -8,6 +8,7 @@
 // ----------------------------------------------------------------------------
 // Version
 // 1.0.0 2024-04-20 初版
+// 1.1.0 2025-11-06 マウスホバー処理で画像ファイルの透過部分を無視するよう改修
 //=============================================================================
 /*:ja
  * @target MZ
@@ -26,8 +27,6 @@
  * 使用不可(禁止状態)にならない選択肢には設定不要です。
  * 
  * 右側基準の0位置は右上ボタンの右端の位置になります。
- * 
- * 画像自体の当たり判定には透過部分も含まれます。
  * 
  * 画像同士（透過部分も含め）が重なる場合、想定通りの動作とならない場合があります。
  * 
@@ -174,6 +173,7 @@ const EXCGameMenuFromPicture = document.currentScript.src.match(/^.*\/(.+)\.js$/
 
 	// メニュー選択肢の状態保持
 	let _beforeSelectedIndex = -1;
+	let _beforeHoveredIndex = -1;
 
 	//--------------------------------------------------
 	// Scene_Menu のオーバーライド
@@ -284,6 +284,43 @@ const EXCGameMenuFromPicture = document.currentScript.src.match(/^.*\/(.+)\.js$/
 	// 画面更新処理
 	Scene_Menu.prototype.update = function() {
 		Scene_MenuBase.prototype.update.call(this);
+
+		// メニューウィンドウがアクティブの場合のみホバーチェック処理をする
+		if(this._commandWindow.isOpenAndActive()){
+			let hoveredIndex = -1;
+
+			// 画面上カーソル座標の取得
+			const displayPoint = new PIXI.Point(TouchInput.x, TouchInput.y);
+			
+			// 重なり順を考慮して逆順に処理
+			for(let i = _mitMenuItems.length - 1; i >= 0; i--){
+				// チェック対象の画像取得
+				const targetBmp = _mitMenuItems[i].bitmap;
+
+				// 画像座標基準でカーソル座標を相対位置に変換
+				const tmpPoint = _mitMenuItems[i].toLocal(displayPoint);
+				const tmpX = Math.floor(tmpPoint.x + (_mitMenuItems[i].anchor.x == 1 ? targetBmp.width : 0));
+				const tmpY = Math.floor(tmpPoint.y);
+
+				// カーソル位置が画像内であるかチェックし、画像内の場合次のチェックへ
+				if(targetBmp && tmpX >= 0 && tmpX < targetBmp.width && tmpY >= 0 && tmpY < targetBmp.height){
+					const targetAlpha = Number(targetBmp.getAlphaPixel(tmpX, tmpY));
+
+					// 透明箇所でない場合、ホバー中と判定
+					if(targetAlpha > 0){
+						hoveredIndex = i;
+						// ホバー中の対象が変更されている場合、メニューに反映する処理
+						if(_beforeHoveredIndex != hoveredIndex){
+							this._commandWindow.select(hoveredIndex);
+						}
+						break;
+					}
+				}
+			}
+			// ホバー対象インデックスの保持
+			_beforeHoveredIndex = hoveredIndex;
+		}
+
 		let currentIndex = this._commandWindow.index();
 
 		// 現在の対象が選択状態になっていない場合
@@ -340,15 +377,8 @@ const EXCGameMenuFromPicture = document.currentScript.src.match(/^.*\/(.+)\.js$/
 		this._index = index;
 	};
 
-	// マウスオーバーを実体側リストに反映
-	EXC_MenuItem.prototype.onMouseEnter = function() {
-		if(_cmdwinMenuItems.isOpenAndActive()){
-			_cmdwinMenuItems.select(this._index);
-		}
-	};
-
 	// メニュークリック時のイベント処理
-	EXC_MenuItem.prototype.onClick = function() {
+	EXC_MenuItem.prototype.onPress = function() {
 		if(_cmdwinMenuItems.isOpenAndActive()){
 			_cmdwinMenuItems.processOk();
 		}
